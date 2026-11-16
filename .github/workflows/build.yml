@@ -4,6 +4,8 @@
 # Public repos get free GitHub Actions with no 500 MB storage limit.
 #
 # How to use: Actions tab -> "Build KoraM" -> Run workflow -> type the version (e.g. v2.1.3).
+# Tick "Test build" to publish it as a pre-release for testers (e.g. version v2.1.3-test1).
+# Customers only get a version once downloads/latest.json on the downloads site points at it.
 # Needs a secret called SOURCE_TOKEN (a read-only token for KoraM-macro-source).
 name: Build KoraM
 on:
@@ -15,6 +17,10 @@ on:
       source_ref:
         description: "Branch of KoraM-macro-source to build"
         default: main
+      prerelease:
+        description: "Test build (publish as a pre-release for testers)"
+        type: boolean
+        default: false
 
 jobs:
   windows:
@@ -146,6 +152,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ inputs.version }}
+          PRE: ${{ inputs.prerelease }}
         run: |
           ls -la out
-          gh release create "$VERSION" out/* --repo "$GITHUB_REPOSITORY" --title "KoraM $VERSION" --notes ""
+          if [ "$PRE" = "true" ]; then
+            gh release create "$VERSION" out/* --repo "$GITHUB_REPOSITORY" --title "KoraM $VERSION (test build)" --notes "Test build for testers. Not released to customers yet." --prerelease
+          else
+            gh release create "$VERSION" out/* --repo "$GITHUB_REPOSITORY" --title "KoraM $VERSION" --notes ""
+          fi
