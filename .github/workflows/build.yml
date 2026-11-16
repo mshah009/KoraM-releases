@@ -1,0 +1,151 @@
+# Lives in the PUBLIC repo KoraM-releases at .github/workflows/build.yml
+# It downloads the code from the PRIVATE repo KoraM-macro-source, builds KoraM
+# for every platform, and publishes the files as a Release here.
+# Public repos get free GitHub Actions with no 500 MB storage limit.
+#
+# How to use: Actions tab -> "Build KoraM" -> Run workflow -> type the version (e.g. v2.1.3).
+# Needs a secret called SOURCE_TOKEN (a read-only token for KoraM-macro-source).
+name: Build KoraM
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to release, e.g. v2.1.3"
+        required: true
+      source_ref:
+        description: "Branch of KoraM-macro-source to build"
+        default: main
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: mshah009/KoraM-macro-source
+          ref: ${{ inputs.source_ref }}
+          token: ${{ secrets.SOURCE_TOKEN }}
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - name: Install packages
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip
+          pip install pyinstaller PySide6 opencv-python mss numpy pynput requests
+      - name: Build
+        shell: bash
+        run: pyinstaller --noconfirm --clean --onefile --windowed --name KoraM --icon aotr.ico --add-data "img;img" --add-data "missions;missions" aotr_dashboard.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: KoraM-windows
+          path: dist/KoraM.exe
+          retention-days: 1
+
+  mac:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: mshah009/KoraM-macro-source
+          ref: ${{ inputs.source_ref }}
+          token: ${{ secrets.SOURCE_TOKEN }}
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - name: Install packages
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip
+          pip install pyinstaller PySide6 opencv-python mss numpy pynput requests pyobjc-framework-Quartz pyobjc-framework-Cocoa
+      - name: Build
+        shell: bash
+        run: |
+          pyinstaller --noconfirm --clean --windowed --name KoraM --icon aotr.icns --add-data "img:img" --add-data "missions:missions" \
+            --osx-bundle-identifier com.koram.macro --hidden-import Quartz --hidden-import AppKit aotr_dashboard.py
+          # sign with a fixed identity so macOS keeps Input Monitoring / Accessibility / Screen Recording across updates
+          if ! codesign --force --deep --sign - --identifier com.koram.macro -r='designated => identifier "com.koram.macro"' dist/KoraM.app; then
+            echo "::warning::codesign failed, permissions will reset on every update"
+          fi
+          ditto -c -k --keepParent dist/KoraM.app KoraM-mac.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: KoraM-mac
+          path: KoraM-mac.zip
+          retention-days: 1
+
+  mac-intel:
+    runs-on: macos-15-intel
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: mshah009/KoraM-macro-source
+          ref: ${{ inputs.source_ref }}
+          token: ${{ secrets.SOURCE_TOKEN }}
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - name: Install packages
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip
+          pip install pyinstaller PySide6 opencv-python mss numpy pynput requests pyobjc-framework-Quartz pyobjc-framework-Cocoa
+      - name: Build
+        shell: bash
+        run: |
+          pyinstaller --noconfirm --clean --windowed --name KoraM --icon aotr.icns --add-data "img:img" --add-data "missions:missions" \
+            --osx-bundle-identifier com.koram.macro --hidden-import Quartz --hidden-import AppKit aotr_dashboard.py
+          # sign with a fixed identity so macOS keeps Input Monitoring / Accessibility / Screen Recording across updates
+          if ! codesign --force --deep --sign - --identifier com.koram.macro -r='designated => identifier "com.koram.macro"' dist/KoraM.app; then
+            echo "::warning::codesign failed, permissions will reset on every update"
+          fi
+          ditto -c -k --keepParent dist/KoraM.app KoraM-mac-intel.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: KoraM-mac-intel
+          path: KoraM-mac-intel.zip
+          retention-days: 1
+
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: mshah009/KoraM-macro-source
+          ref: ${{ inputs.source_ref }}
+          token: ${{ secrets.SOURCE_TOKEN }}
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - name: Install packages
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip
+          pip install pyinstaller PySide6 opencv-python mss numpy pynput requests
+      - name: Build
+        shell: bash
+        run: |
+          pyinstaller --noconfirm --clean --onefile --name KoraM --add-data "img:img" --add-data "missions:missions" \
+            --collect-submodules Xlib \
+            --hidden-import pynput.keyboard._xorg --hidden-import pynput.keyboard._uinput --hidden-import pynput.keyboard._base --hidden-import pynput.keyboard._dummy --hidden-import pynput.mouse._xorg --hidden-import pynput.mouse._base --hidden-import pynput.mouse._dummy --hidden-import pynput._util.xorg --hidden-import pynput._util.xorg_keysyms --hidden-import pynput._util.uinput aotr_dashboard.py
+          tar czf KoraM-linux.tar.gz -C dist KoraM
+      - uses: actions/upload-artifact@v4
+        with:
+          name: KoraM-linux
+          path: KoraM-linux.tar.gz
+          retention-days: 1
+
+  # Runs after all four builds succeed: makes the Release and attaches the files.
+  release:
+    needs: [windows, mac, mac-intel, linux]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: out
+          merge-multiple: true
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          ls -la out
+          gh release create "$VERSION" out/* --repo "$GITHUB_REPOSITORY" --title "KoraM $VERSION" --notes ""
