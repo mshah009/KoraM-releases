@@ -1,0 +1,66 @@
+# Lives in the PUBLIC repo KoraM-releases at .github/workflows/build-android.yml
+# Builds ONLY the Android app (KoraM.apk) from android_src.txt in the private repo, and publishes it as a
+# pre-release for testing. Full releases build Android together with every other platform in build.yml.
+#
+# How to use: Actions tab -> "Build KoraM Android (test)" -> Run workflow -> version like v3.0.0-test1.
+name: Build KoraM Android (test)
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Test version, e.g. v3.0.0-test1"
+        required: true
+      source_ref:
+        description: "Branch of KoraM-macro-source to build"
+        default: main
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: mshah009/KoraM-macro-source
+          ref: ${{ inputs.source_ref }}
+          token: ${{ secrets.SOURCE_TOKEN }}
+      - name: Unpack the Android project
+        run: |
+          python3 - <<'EOF'
+          import base64, os, re
+          src = open("android_src.txt", encoding="utf-8").read()
+          parts = re.split(r"^=== FILE(\(b64\))?: (.+?) ===\n", src, flags=re.M)
+          for i in range(1, len(parts), 3):
+              flag, path, body = parts[i], parts[i + 1].strip(), parts[i + 2]
+              p = os.path.join("android", path)
+              os.makedirs(os.path.dirname(p), exist_ok=True)
+              if flag:
+                  open(p, "wb").write(base64.b64decode("".join(body.split())))
+              else:
+                  open(p, "w", encoding="utf-8", newline="\n").write(body)
+              print("unpacked", path)
+          EOF
+          mkdir -p android/app/src/main/assets
+          cp -r img android/app/src/main/assets/img
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.9"
+      - name: Build APK
+        working-directory: android
+        env:
+          KORAM_VERSION: ${{ inputs.version }}
+        run: |
+          gradle --no-daemon --stacktrace :app:assembleRelease
+          cp app/build/outputs/apk/release/app-release.apk ../KoraM.apk
+          ls -la ../KoraM.apk
+      - name: Publish test release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          gh release create "$VERSION" KoraM.apk --repo "$GITHUB_REPOSITORY" --title "KoraM $VERSION (Android test build)" --notes "Android test build for testers. Not released to customers yet." --prerelease
