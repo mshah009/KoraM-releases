@@ -137,9 +137,54 @@ jobs:
           path: KoraM-linux.tar.gz
           retention-days: 1
 
-  # Runs after all four builds succeed: makes the Release and attaches the files.
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: mshah009/KoraM-macro-source
+          ref: ${{ inputs.source_ref }}
+          token: ${{ secrets.SOURCE_TOKEN }}
+      - name: Unpack the Android project
+        run: |
+          python3 - <<'EOF'
+          import base64, os, re
+          src = open("android_src.txt", encoding="utf-8").read()
+          parts = re.split(r"^=== FILE(\(b64\))?: (.+?) ===\n", src, flags=re.M)
+          for i in range(1, len(parts), 3):
+              flag, path, body = parts[i], parts[i + 1].strip(), parts[i + 2]
+              p = os.path.join("android", path)
+              os.makedirs(os.path.dirname(p), exist_ok=True)
+              if flag:
+                  open(p, "wb").write(base64.b64decode("".join(body.split())))
+              else:
+                  open(p, "w", encoding="utf-8", newline="\n").write(body)
+          EOF
+          mkdir -p android/app/src/main/assets
+          cp -r img android/app/src/main/assets/img
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.9"
+      - name: Build APK
+        working-directory: android
+        env:
+          KORAM_VERSION: ${{ inputs.version }}
+        run: |
+          gradle --no-daemon --stacktrace :app:assembleRelease
+          cp app/build/outputs/apk/release/app-release.apk ../KoraM.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: KoraM-android
+          path: KoraM.apk
+          retention-days: 1
+
+  # Runs after all five builds succeed: makes the Release and attaches the files.
   release:
-    needs: [windows, mac, mac-intel, linux]
+    needs: [windows, mac, mac-intel, linux, android]
     runs-on: ubuntu-latest
     permissions:
       contents: write
