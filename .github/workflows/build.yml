@@ -21,6 +21,10 @@ on:
         description: "Test build (publish as a pre-release for testers)"
         type: boolean
         default: false
+      android:
+        description: "Include Android (KoraM.apk)"
+        type: boolean
+        default: false
 
 jobs:
   windows:
@@ -138,6 +142,7 @@ jobs:
           retention-days: 1
 
   android:
+    if: ${{ inputs.android }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -182,9 +187,10 @@ jobs:
           path: KoraM.apk
           retention-days: 1
 
-  # Runs after all five builds succeed: makes the Release and attaches the files.
+  # Runs after the builds succeed (Android may be skipped): makes the Release and attaches the files.
   release:
     needs: [windows, mac, mac-intel, linux, android]
+    if: ${{ !failure() && !cancelled() }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
