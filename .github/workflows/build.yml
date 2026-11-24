@@ -190,7 +190,8 @@ jobs:
   # Runs after the builds succeed (Android may be skipped): makes the Release and attaches the files.
   release:
     needs: [windows, mac, mac-intel, linux, android]
-    if: ${{ !failure() && !cancelled() }}
+    # every PC build must have succeeded (a cancelled job is not a "failure", so check each one); Android may be skipped
+    if: ${{ always() && needs.windows.result == 'success' && needs.mac.result == 'success' && needs['mac-intel'].result == 'success' && needs.linux.result == 'success' && (needs.android.result == 'success' || needs.android.result == 'skipped') }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
